@@ -1,0 +1,41 @@
+name: Deploy Scraper Automático
+
+on:
+  push:
+    branches: [ "main" ]  # Dispara sempre que der push na main.
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conectar na VPS e Atualizar
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            # 1. Entra na pasta do projeto
+            cd scraper-api
+
+            # 2. Baixa as atualizações do GitHub
+            git pull origin main
+
+            # 3. Constroi a nova imagem (Build)
+            # Dica: O --no-cache garante que ele pegue as alterações reais
+            docker build -t meu-scraper .
+
+            # 4. Para e remove o container antigo (se existir)
+            # O "|| true" impede o erro se o container não estiver rodando
+            docker stop scraper-prod || true
+            docker rm scraper-prod || true
+
+            # 5. Sobe o novo container conectado na rede do n8n
+            docker run -d \
+              --name scraper-prod \
+              --restart=always \
+              --network automacao-net \
+              meu-scraper
+
+            # 6. Limpeza (Remove imagens antigas para não lotar o HD da VPS)
+            docker image prune -f
