@@ -2,13 +2,29 @@ import asyncio
 import random
 from fastapi import FastAPI, HTTPException
 from playwright.async_api import async_playwright
-# IMPORTANTE: Garanta que 'playwright-stealth' está no requirements.txt
 from playwright_stealth import stealth_async
 import uvicorn
 
 app = FastAPI()
 
-# User-Agents rotativos
+# --- CONFIGURAÇÃO DE ROTAÇÃO DE PROXIES ---
+# Transcrevi da sua imagem. Todos usam o mesmo usuário/senha.
+PROXY_USER = "fernandooliveira@live.com"
+PROXY_PASS = "_842JH.-!K!U"
+
+PROXY_LIST = [
+    "142.111.48.253:7030", # US - Los Angeles
+    "31.59.20.176:6754",   # UK - London
+    "23.95.150.145:6114",  # US - Buffalo
+    "198.23.239.134:6540", # US - Buffalo
+    "107.172.163.27:6543", # US - Bloomingdale
+    "198.105.121.200:6462",# UK - City Of London
+    "64.137.96.74:6641",   # Spain - Madrid
+    "84.247.60.125:6095",  # Poland - Warsaw
+    "216.10.27.159:6837",  # US - Dallas
+    "142.111.67.146:5611"  # Japan - Tokyo
+]
+
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -16,19 +32,12 @@ USER_AGENTS = [
 ]
 
 async def simulate_human_behavior(page):
-    """Simula movimentos humanos para enganar o anti-bot"""
     try:
-        # Movimentos suaves do mouse
         await page.mouse.move(random.randint(100, 500), random.randint(100, 500))
         await asyncio.sleep(random.uniform(0.5, 1.5))
-
-        # Scroll lento para baixo
-        for _ in range(3):
+        for _ in range(2):
             await page.mouse.wheel(0, random.randint(100, 300))
-            await asyncio.sleep(random.uniform(0.2, 0.8))
-
-        # Pequeno scroll para cima
-        await page.mouse.wheel(0, -50)
+            await asyncio.sleep(random.uniform(0.2, 0.5))
     except:
         pass
 
@@ -40,9 +49,13 @@ async def scrape(url: str):
     async with async_playwright() as p:
         browser = None
         try:
+            # 1. Sorteia um Proxy e um User Agent
+            selected_ip = random.choice(PROXY_LIST)
             current_ua = random.choice(USER_AGENTS)
 
-            # --- LANÇAMENTO DO BROWSER COM PROXY ---
+            print(f"Tentando com Proxy: {selected_ip}")
+
+            # 2. Lança navegador com o proxy sorteado
             browser = await p.chromium.launch(
                 headless=True,
                 args=[
@@ -55,14 +68,12 @@ async def scrape(url: str):
                     "--ignore-certificate-errors",
                     "--ignore-certificate-errors-spki-list",
                 ],
-                # CONFIGURAÇÃO DA WEBSHARE (IP, Porta, User, Senha)
                 proxy={
-                    "server": "http://142.111.48.253:7030",
-                    "username": "fernandooliveira@live.com",
-                    "password": "_842JH.-!K!U"
+                    "server": f"http://{selected_ip}",
+                    "username": PROXY_USER,
+                    "password": PROXY_PASS
                 }
             )
-            # ---------------------------------------
 
             context = await browser.new_context(
                 user_agent=current_ua,
@@ -79,39 +90,35 @@ async def scrape(url: str):
             )
 
             await context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             """)
 
             page = await context.new_page()
-
-            # Ativa modo furtivo
             await stealth_async(page)
 
-            print(f"Acessando via Proxy: {url}")
+            # 3. Navegação com Timeout maior (120 segundos)
+            # Proxies residenciais são lentos, precisamos ter paciência
+            response = await page.goto(url, wait_until='domcontentloaded', timeout=120000)
 
-            # Timeout aumentado para 60s (Proxy pode ser lento)
-            response = await page.goto(url, wait_until='domcontentloaded', timeout=60000)
-
-            if response.status == 403 or response.status == 503:
-                return {"error": f"Bloqueio detectado. Status: {response.status}"}
+            if response.status in [403, 503]:
+                return {"error": f"Bloqueio de IP ({response.status}). Tente novamente para pegar outro proxy."}
 
             await simulate_human_behavior(page)
-            await page.wait_for_timeout(3000)
+
+            # Espera mais curta para não estourar o tempo total
+            await page.wait_for_timeout(2000)
 
             content = await page.content()
 
             if "suspicious-traffic" in content or "account-verification" in content:
-                return {"error": "Soft Block: Verificação de segurança solicitada."}
+                return {"error": "Soft Block: ML pediu verificação. Tente novamente."}
 
             return {"html": content}
 
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": f"Erro técnico: {str(e)}"}
 
         finally:
-            # O ERRO ESTAVA AQUI (FALTA DE INDENTAÇÃO)
             if browser:
                 await browser.close()
 
