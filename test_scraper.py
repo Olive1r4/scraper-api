@@ -3,7 +3,7 @@ import time
 
 def test_scrape():
     url = "http://localhost:3001/scrape"
-    target_url = "https://www.amazon.com.br/"
+    target_url = "https://www.mercadolivre.com.br/apple-iphone-15-128-gb-preto-distribuidor-autorizado/p/MLB1027960334"
 
     print(f"Testing Scraper API at {url} with target {target_url}...")
     try:
